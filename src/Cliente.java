@@ -2,187 +2,153 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.Map;
+import java.util.List;
 import java.util.Scanner;
 
 /**
  * Cliente da Corretora Distribuída.
  *
- * Funcionalidades:
- *  - Conecta ao servidor via RMI com reconexão automática (tolerância a falhas básica)
- *  - Implementa ClienteCallback para receber notificações de mudança de preço em tempo real
- *  - Menu interativo no terminal para todas as operações disponíveis
+ * - Conecta ao servidor via RMI com reconexão automática
+ * - Implementa ClienteCallback (padrão Observer) para receber notificações
+ * - Menu: listar ativos, consultar valor, comprar (sobe preço), vender (baixa preço)
  */
 public class Cliente extends UnicastRemoteObject implements ClienteCallback {
 
-    private static final String HOST          = "localhost";
-    private static final int    PORTA         = 1099;
-    private static final String NOME_SERVICO  = "CorretorService";
-    private static final int    MAX_TENTATIVAS = 5;
-    private static final long   ESPERA_MS      = 3000; // 3 segundos entre tentativas
+    private static final String HOST         = "localhost";
+    private static final int    PORTA        = 1099;
+    private static final String NOME_SERVICO = "CorretorService";
 
-    // Referência ao stub remoto do servidor
+    /** Percentual de variação por operação de compra/venda */
+    private static final double VARIACAO_PERCENTUAL = 0.01; // 1%
+
     private transient CorretorInterface corretora;
-
-    // Scanner compartilhado para leitura do terminal
     private final transient Scanner scanner = new Scanner(System.in);
-
-    // -----------------------------------------------------------------------
-    // Construtor — exporta este objeto como callback remoto
-    // -----------------------------------------------------------------------
 
     protected Cliente() throws RemoteException {
         super();
     }
 
-    // -----------------------------------------------------------------------
-    // Implementação do callback (chamado pelo servidor)
-    // -----------------------------------------------------------------------
+    // ── Observer: chamado pelo servidor quando um preço muda ──────────────────
 
     @Override
-    public void notificarMudancaPreco(String simbolo, double precoAntigo, double precoNovo)
-            throws RemoteException {
-        double variacao = precoNovo - precoAntigo;
-        String seta = variacao >= 0 ? "▲" : "▼";
+    public void notificar(String nome, double novoValor) throws RemoteException {
         System.out.println();
-        System.out.println("┌─────────────────────────────────────────────┐");
-        System.out.printf ("│ 🔔 ALERTA: %-6s  R$ %.2f → R$ %.2f  %s %.2f │%n",
-                simbolo, precoAntigo, precoNovo, seta, Math.abs(variacao));
-        System.out.println("└─────────────────────────────────────────────┘");
-        System.out.print("Opção: "); // Reaparece o prompt após o alerta
+        System.out.println("╔════════════════════════════════════════╗");
+        System.out.printf ("║  ALERTA: %-6s  novo valor: R$ %.2f%n", nome, novoValor);
+        System.out.println("╚════════════════════════════════════════╝");
+        System.out.print("Opção: ");
     }
 
-    // -----------------------------------------------------------------------
-    // Conexão com reconexão automática
-    // -----------------------------------------------------------------------
+    // ── Conexão com reconexão automática ─────────────────────────────────────
 
     private boolean conectar() {
-        for (int tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+        int tentativas = 5;
+        for (int i = 1; i <= tentativas; i++) {
             try {
                 Registry registry = LocateRegistry.getRegistry(HOST, PORTA);
                 corretora = (CorretorInterface) registry.lookup(NOME_SERVICO);
-                System.out.println("[OK] Conectado ao servidor " + HOST + ":" + PORTA);
+                System.out.println("[OK] Conectado ao servidor.");
                 return true;
             } catch (Exception e) {
-                System.out.printf("[Tentativa %d/%d] Servidor indisponível. Aguardando %ds...%n",
-                        tentativa, MAX_TENTATIVAS, ESPERA_MS / 1000);
-                try {
-                    Thread.sleep(ESPERA_MS);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                System.out.printf("[%d/%d] Servidor indisponível. Aguardando 3s...%n", i, tentativas);
+                try { Thread.sleep(3000); } catch (InterruptedException ie) { break; }
             }
         }
-        System.err.println("[ERRO] Não foi possível conectar ao servidor após " + MAX_TENTATIVAS + " tentativas.");
+        System.err.println("[ERRO] Não foi possível conectar.");
         return false;
     }
 
-    /**
-     * Tenta reconectar em caso de perda de conexão durante uma operação.
-     */
-    private boolean reconectar() {
-        System.out.println("[AVISO] Conexão perdida. Tentando reconectar...");
-        return conectar();
+    private void reconectar() {
+        System.out.println("[AVISO] Reconectando...");
+        conectar();
     }
 
-    // -----------------------------------------------------------------------
-    // Operações do menu
-    // -----------------------------------------------------------------------
+    // ── Operações do menu ─────────────────────────────────────────────────────
 
-    private void listarAcoes() {
+    private void listarAtivos() {
         try {
-            Map<String, Double> acoes = corretora.listarAcoes();
+            List<Ativo> lista = corretora.getListaAtivos();
             System.out.println();
-            System.out.println("┌────────────────────────────────┐");
-            System.out.println("│       AÇÕES DISPONÍVEIS        │");
-            System.out.println("├──────────┬─────────────────────┤");
-            System.out.println("│ Símbolo  │   Preço Atual       │");
-            System.out.println("├──────────┼─────────────────────┤");
-            acoes.entrySet().stream()
-                 .sorted(Map.Entry.comparingByKey())
-                 .forEach(e -> System.out.printf("│ %-8s │  R$ %12.2f    │%n", e.getKey(), e.getValue()));
-            System.out.println("└──────────┴─────────────────────┘");
+            System.out.println("┌──────────┬──────────────────────┐");
+            System.out.println("│  Ativo   │   Valor Atual        │");
+            System.out.println("├──────────┼──────────────────────┤");
+            lista.stream()
+                 .sorted((a, b) -> a.getNome().compareTo(b.getNome()))
+                 .forEach(a -> System.out.printf("│ %-8s │  R$ %13.2f   │%n",
+                         a.getNome(), a.getValor()));
+            System.out.println("└──────────┴──────────────────────┘");
         } catch (RemoteException e) {
-            System.err.println("[ERRO] Falha ao listar ações: " + e.getMessage());
+            System.err.println("[ERRO] " + e.getMessage());
             reconectar();
         }
     }
 
-    private void consultarPreco() {
-        System.out.print("Símbolo da ação: ");
-        String simbolo = scanner.nextLine().trim();
+    private void consultarValor() {
+        System.out.print("Nome do ativo: ");
+        String nome = scanner.nextLine().trim();
         try {
-            double preco = corretora.consultarPreco(simbolo);
-            System.out.printf("Preço de %-6s: R$ %.2f%n", simbolo.toUpperCase(), preco);
+            double valor = corretora.getValor(nome);
+            System.out.printf("Valor de %s: R$ %.2f%n", nome.toUpperCase(), valor);
         } catch (RemoteException e) {
             System.err.println("[ERRO] " + e.getMessage());
-            if (e.getCause() != null) reconectar();
         }
     }
 
-    private void atualizarPreco() {
-        System.out.print("Símbolo da ação: ");
-        String simbolo = scanner.nextLine().trim();
-        System.out.print("Novo preço (R$): ");
+    /**
+     * Comprar: aumenta o valor do ativo em 1%.
+     * Simula aumento de demanda pela compra.
+     */
+    private void comprar() {
+        System.out.print("Nome do ativo para comprar: ");
+        String nome = scanner.nextLine().trim();
         try {
-            double novoPreco = Double.parseDouble(scanner.nextLine().trim().replace(",", "."));
-            corretora.atualizarPreco(simbolo, novoPreco);
-            System.out.printf("[OK] Preço de %s atualizado para R$ %.2f%n",
-                    simbolo.toUpperCase(), novoPreco);
-        } catch (NumberFormatException e) {
-            System.err.println("[ERRO] Valor inválido. Use números (ex: 1234.56).");
+            double valorAtual = corretora.getValor(nome);
+            double novoValor  = valorAtual * (1 + VARIACAO_PERCENTUAL);
+            corretora.setValor(nome, novoValor);
+            System.out.printf("[COMPRA] %s: R$ %.2f → R$ %.2f (+1%%)%n",
+                    nome.toUpperCase(), valorAtual, novoValor);
         } catch (RemoteException e) {
             System.err.println("[ERRO] " + e.getMessage());
-            if (e.getCause() != null) reconectar();
         }
     }
 
-    private void assinarNotificacoes() {
-        System.out.print("Símbolo para monitorar: ");
-        String simbolo = scanner.nextLine().trim();
+    /**
+     * Vender: reduz o valor do ativo em 1%.
+     * Simula aumento de oferta pela venda.
+     */
+    private void vender() {
+        System.out.print("Nome do ativo para vender: ");
+        String nome = scanner.nextLine().trim();
         try {
-            corretora.registrarCallback(simbolo, this);
-            System.out.printf("[OK] Assinado! Você receberá alertas para: %s%n",
-                    simbolo.toUpperCase());
+            double valorAtual = corretora.getValor(nome);
+            double novoValor  = valorAtual * (1 - VARIACAO_PERCENTUAL);
+            corretora.setValor(nome, novoValor);
+            System.out.printf("[VENDA]  %s: R$ %.2f → R$ %.2f (-1%%)%n",
+                    nome.toUpperCase(), valorAtual, novoValor);
         } catch (RemoteException e) {
             System.err.println("[ERRO] " + e.getMessage());
-            if (e.getCause() != null) reconectar();
         }
     }
 
-    private void cancelarAssinatura() {
-        System.out.print("Símbolo para cancelar: ");
-        String simbolo = scanner.nextLine().trim();
+    private void registrarComoObservador() {
         try {
-            corretora.cancelarCallback(simbolo, this);
-            System.out.printf("[OK] Assinatura cancelada para: %s%n", simbolo.toUpperCase());
+            corretora.registrarObservador(this);
+            System.out.println("[OK] Registrado como observador. Você receberá alertas de mudança de preço.");
         } catch (RemoteException e) {
             System.err.println("[ERRO] " + e.getMessage());
-            if (e.getCause() != null) reconectar();
         }
     }
 
-    private void cadastrarAcao() {
-        System.out.print("Símbolo da nova ação: ");
-        String simbolo = scanner.nextLine().trim();
-        System.out.print("Preço inicial (R$): ");
+    private void cancelarObservador() {
         try {
-            double preco = Double.parseDouble(scanner.nextLine().trim().replace(",", "."));
-            corretora.cadastrarAcao(simbolo, preco);
-            System.out.printf("[OK] Ação %s cadastrada com R$ %.2f%n",
-                    simbolo.toUpperCase(), preco);
-        } catch (NumberFormatException e) {
-            System.err.println("[ERRO] Valor inválido.");
+            corretora.removerObservador(this);
+            System.out.println("[OK] Removido dos observadores.");
         } catch (RemoteException e) {
             System.err.println("[ERRO] " + e.getMessage());
-            if (e.getCause() != null) reconectar();
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Loop principal — menu interativo
-    // -----------------------------------------------------------------------
+    // ── Loop principal ────────────────────────────────────────────────────────
 
     private void executar() {
         System.out.println("╔══════════════════════════════════════════╗");
@@ -191,48 +157,47 @@ public class Cliente extends UnicastRemoteObject implements ClienteCallback {
 
         if (!conectar()) return;
 
+        // Registra automaticamente como observador ao conectar
+        registrarComoObservador();
+
         boolean rodando = true;
         while (rodando) {
             System.out.println();
-            System.out.println("┌─────────────────────────────────────┐");
-            System.out.println("│            MENU PRINCIPAL           │");
-            System.out.println("├─────────────────────────────────────┤");
-            System.out.println("│  [1] Listar ações disponíveis       │");
-            System.out.println("│  [2] Consultar preço de uma ação    │");
-            System.out.println("│  [3] Atualizar preço de uma ação    │");
-            System.out.println("│  [4] Assinar notificações de ação   │");
-            System.out.println("│  [5] Cancelar assinatura            │");
-            System.out.println("│  [6] Cadastrar nova ação            │");
-            System.out.println("│  [0] Sair                           │");
-            System.out.println("└─────────────────────────────────────┘");
+            System.out.println("┌──────────────────────────────────────┐");
+            System.out.println("│            MENU PRINCIPAL            │");
+            System.out.println("├──────────────────────────────────────┤");
+            System.out.println("│  [1] Listar ativos                   │");
+            System.out.println("│  [2] Consultar valor de um ativo     │");
+            System.out.println("│  [3] Comprar ativo  (+1% no valor)   │");
+            System.out.println("│  [4] Vender ativo   (-1% no valor)   │");
+            System.out.println("│  [5] Cancelar notificações           │");
+            System.out.println("│  [0] Sair                            │");
+            System.out.println("└──────────────────────────────────────┘");
             System.out.print("Opção: ");
 
             String opcao = scanner.nextLine().trim();
 
             switch (opcao) {
-                case "1" -> listarAcoes();
-                case "2" -> consultarPreco();
-                case "3" -> atualizarPreco();
-                case "4" -> assinarNotificacoes();
-                case "5" -> cancelarAssinatura();
-                case "6" -> cadastrarAcao();
+                case "1" -> listarAtivos();
+                case "2" -> consultarValor();
+                case "3" -> comprar();
+                case "4" -> vender();
+                case "5" -> cancelarObservador();
                 case "0" -> {
-                    System.out.println("Encerrando cliente. Até logo!");
+                    cancelarObservador();
+                    System.out.println("Até logo!");
                     rodando = false;
                 }
-                default  -> System.out.println("[AVISO] Opção inválida. Tente novamente.");
+                default -> System.out.println("[AVISO] Opção inválida.");
             }
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Main
-    // -----------------------------------------------------------------------
+    // ── Main ──────────────────────────────────────────────────────────────────
 
     public static void main(String[] args) {
         try {
-            Cliente cliente = new Cliente();
-            cliente.executar();
+            new Cliente().executar();
         } catch (RemoteException e) {
             System.err.println("[ERRO FATAL] Não foi possível exportar o cliente como objeto remoto.");
             e.printStackTrace();

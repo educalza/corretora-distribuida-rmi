@@ -2,17 +2,12 @@ import java.rmi.Remote;
 import java.rmi.RemoteException;
 
 /**
- * Interface remota implementada pelo CLIENTE.
- * O servidor chama este método para notificar mudanças de preço em tempo real (callback).
+ * Interface do observador (padrão Observer).
+ * Implementada pelo cliente — o servidor chama este método
+ * para notificar mudanças de preço em tempo real.
  */
 public interface ClienteCallback extends Remote {
 
-    /**
-     * Chamado pelo servidor quando o preço de uma ação muda.
-     *
-     * @param simbolo    Símbolo da ação (ex: "BTC")
-     * @param precoAntigo Preço anterior
-     * @param precoNovo   Novo preço
-     */
-    void notificarMudancaPreco(String simbolo, double precoAntigo, double precoNovo) throws RemoteException;
+    /** Chamado pelo servidor quando o valor de um ativo é alterado. */
+    void notificar(String nome, double novoValor) throws RemoteException;
 }
