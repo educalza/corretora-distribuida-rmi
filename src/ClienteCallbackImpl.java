@@ -5,18 +5,8 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * Implementação do Callback do Cliente.
- *
- * Mantém uma referência compartilhada (AtomicReference) ao objeto remoto do
- * servidor, e um flag (AtomicBoolean) para indicar se reconexão está em curso.
- *
- * Quando o servidor avisa que está encerrando (notificarEncerramento),
- * this class dispara automaticamente uma thread de reconexão em background que:
- *  1. Fica tentando se conectar ao servidor indefinidamente (a cada 3s).
- *  2. Quando conseguir, re-registra o callback e atualiza a referência.
- *  3. Imprime uma mensagem visual de sucesso no console.
- */
+// Implementação do Callback do Cliente.
+// Quando o servidor avisa que está encerrando (notificarEncerramento),
 public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteCallback {
 
     private static final int INTERVALO_RECONEXAO_MS = 3000;
@@ -38,7 +28,7 @@ public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteC
         this.reconectando = reconectando;
     }
 
-    /** Chamado pelo servidor quando o preço de um ativo muda. */
+    // Chamado pelo servidor quando o preço de um ativo muda.
     @Override
     public void notificarMudancaPreco(String nomeAtivo, double novoValor) throws RemoteException {
         System.out.println("\n>>> [NOTIFICAÇÃO] " + nomeAtivo
@@ -46,7 +36,7 @@ public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteC
         System.out.print("Escolha uma opção: ");
     }
 
-    /** Chamado pelo servidor ANTES de encerrar — avisa imediatamente e dispara reconexão. */
+    // Chamado pelo servidor ANTES de encerrar — avisa imediatamente e dispara reconexão.
     @Override
     public void notificarEncerramento() throws RemoteException {
         System.out.println(ANSI_RED + "\n╔══════════════════════════════════════════╗");
@@ -56,20 +46,17 @@ public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteC
         iniciarReconexaoBackground();
     }
 
-    /**
-     * Inicia a thread de reconexão em background.
-     * Usa compareAndSet para garantir que só uma thread de reconexão roda por vez.
-     */
+    // thread de reconexão em background.
     public void iniciarReconexaoBackground() {
         if (reconectando.compareAndSet(false, true)) {
-            corretorRef.set(null); // invalida a referência atual
+            corretorRef.set(null); // invalida referência atual
             Thread t = new Thread(this::loopReconexao, "Thread-Reconexao");
             t.setDaemon(true);    // morre junto com o processo principal
             t.start();
         }
     }
 
-    /** Loop de reconexão que roda em background até conseguir conectar. */
+    // Loop de reconexão
     private void loopReconexao() {
         try {
             while (true) {

@@ -1,8 +1,7 @@
 import java.io.Serializable;
 
 /**
- * Classe que representa um ativo financeiro (ação ou criptoativo).
- * Implementa Serializable para poder ser transmitida via RMI.
+ * Classe ativo financeiro
  */
 public class Ativo implements Serializable {
 

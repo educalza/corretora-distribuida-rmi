@@ -5,19 +5,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Implementação da Corretora (Servidor RMI).
- * Gerencia os ativos e notifica os clientes registrados quando os preços mudam.
- *
- * O uso de "synchronized" garante que apenas um cliente por vez acesse
- * os recursos compartilhados (concorrência).
- */
+// Implementação da Corretora (Servidor RMI).
 public class CorretorImpl extends UnicastRemoteObject implements CorretorRemote {
 
-    // Mapa de ativos: nome -> Ativo (acesso rápido por nome)
+    // Mapa de ativos
     private Map<String, Ativo> ativos;
 
-    // Lista de clientes registrados para receber notificações (padrão Observer)
+    // Lista de clientes registrados (padrão Observer)
     private List<ClienteCallback> clientesRegistrados;
 
     public CorretorImpl() throws RemoteException {
@@ -26,20 +20,14 @@ public class CorretorImpl extends UnicastRemoteObject implements CorretorRemote 
         clientesRegistrados = new ArrayList<>();
     }
 
-    /**
-     * Cadastra um ativo na corretora.
-     * Chamado diretamente pelo Servidor (não é método remoto).
-     */
+    // Cadastra um ativo
     public synchronized void cadastrarAtivo(String nome, double valorInicial) {
         String nomeUpper = nome.toUpperCase();
         ativos.put(nomeUpper, new Ativo(nomeUpper, valorInicial));
         System.out.println("[Servidor] Ativo cadastrado: " + nomeUpper + " = R$ " + valorInicial);
     }
 
-    // ---------------------------------------------------------------
-    // Implementação dos métodos da interface CorretorRemote
-    // ---------------------------------------------------------------
-
+    // métodos da interface CorretorRemote
     @Override
     public synchronized List<Ativo> listarAtivos() throws RemoteException {
         System.out.println("[Servidor] Cliente solicitou lista de ativos.");
@@ -87,10 +75,7 @@ public class CorretorImpl extends UnicastRemoteObject implements CorretorRemote 
         System.out.println("[Servidor] Cliente desregistrado. Total: " + clientesRegistrados.size());
     }
 
-    // ---------------------------------------------------------------
-    // Métodos auxiliares: notificações para clientes (padrão Observer)
-    // ---------------------------------------------------------------
-
+    // notificações para clientes (padrão Observer)
     private void notificarTodos(String nomeAtivo, double novoValor) {
         List<ClienteCallback> clientesOffline = new ArrayList<>();
 
@@ -108,10 +93,7 @@ public class CorretorImpl extends UnicastRemoteObject implements CorretorRemote 
         clientesRegistrados.removeAll(clientesOffline);
     }
 
-    /**
-     * Chamado pelo ShutdownHook do Servidor antes de encerrar a JVM.
-     * Avisa imediatamente todos os clientes registrados que o servidor está saindo.
-     */
+    // Avisa todos os clientes registrados que o servidor está saindo
     public synchronized void notificarClientesEncerramento() {
         System.out.println("[Servidor] Notificando " + clientesRegistrados.size() + " cliente(s) sobre encerramento.");
         for (ClienteCallback cliente : clientesRegistrados) {
